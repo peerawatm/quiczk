@@ -1,0 +1,33 @@
+[package]
+name = "quiczk"
+version = "0.0.1"
+edition = "2024"
+
+[[bin]]
+name = "quiczk"
+path = "src/quiczk.rs"
+
+[dependencies]
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+rand = { version = "0.10", default-features = false, features = ["thread_rng"] }
+serde = { version = "1.0", default-features = false, features = ["derive", "std"] }
+toml = { version = "1.1", default-features = false, features = ["parse", "serde", "std"] }
+
+[profile.dev]
+opt-level = 0
+debug = "full"
+debug-assertions = true
+overflow-checks = true
+incremental = true
+panic = "unwind"
+
+[profile.release]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
