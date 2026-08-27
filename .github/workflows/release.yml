@@ -33,6 +33,9 @@ jobs:
     needs: verify
     runs-on: ubuntu-24.04
     steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
       - name: Create release
         uses: taiki-e/create-gh-release-action@v1
 
