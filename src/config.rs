@@ -1,7 +1,4 @@
-use std::{
-    env, fs,
-    path::{Path, PathBuf},
-};
+use std::{env, fs, path::PathBuf};
 
 use serde::Deserialize;
 
@@ -37,7 +34,9 @@ impl Default for Config {
 
 impl Config {
     pub fn load() -> Result<Self, AppError> {
-        let path = config_path()?;
+        let Some(path) = config_path() else {
+            return Ok(Self::default());
+        };
 
         match fs::read_to_string(&path) {
             Ok(contents) => toml::from_str::<ConfigFile>(&contents)
@@ -49,13 +48,19 @@ impl Config {
     }
 }
 
-fn config_path() -> Result<PathBuf, AppError> {
-    let config_home = env::var_os("XDG_CONFIG_HOME")
+fn config_path() -> Option<PathBuf> {
+    if let Some(path) = env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
+        return Some(path.join("quiczk").join("config.toml"));
+    }
+    if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+        return Some(home.join(".config").join("quiczk").join("config.toml"));
+    }
+    if let Some(profile) = env::var_os("USERPROFILE").map(PathBuf::from) {
+        return Some(profile.join(".config").join("quiczk").join("config.toml"));
+    }
+    env::var_os("APPDATA")
         .map(PathBuf::from)
-        .or_else(|| env::var_os("HOME").map(|home| Path::new(&home).join(".config")))
-        .ok_or(AppError::InvalidConfigPath)?;
-
-    Ok(config_home.join("quiczk").join("config.toml"))
+        .map(|base| base.join("quiczk").join("config.toml"))
 }
 
 #[cfg(test)]

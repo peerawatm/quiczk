@@ -50,28 +50,22 @@ impl Quiz {
 
     pub fn format_source(&self) -> String {
         let mut formatted = String::from("[quiczk]\n");
-
         for (index, (question, answer)) in self.questions.iter().zip(&self.answers).enumerate() {
             let number = index + 1;
-            writeln!(formatted, "q{number} = {}", quoted(&question.question))
-                .expect("writing to a String cannot fail");
-            writeln!(formatted, "o{number} = [").expect("writing to a String cannot fail");
+            let _ = writeln!(formatted, "q{number} = {}", quoted(&question.question));
+            let _ = writeln!(formatted, "o{number} = [");
             for option in &question.options {
-                writeln!(formatted, "  {},", quoted(option))
-                    .expect("writing to a String cannot fail");
+                let _ = writeln!(formatted, "  {},", quoted(option));
             }
             formatted.push_str("]\n");
-            writeln!(formatted, "a{number} = {}", quoted(&answer.answer))
-                .expect("writing to a String cannot fail");
+            let _ = writeln!(formatted, "a{number} = {}", quoted(&answer.answer));
             if let Some(explanation) = &question.explanation {
-                writeln!(formatted, "e{number} = {}", quoted(explanation))
-                    .expect("writing to a String cannot fail");
+                let _ = writeln!(formatted, "e{number} = {}", quoted(explanation));
             }
             if number != self.questions.len() {
                 formatted.push('\n');
             }
         }
-
         formatted
     }
 
@@ -187,8 +181,7 @@ fn quoted(value: &str) -> String {
             '\r' => quoted.push_str("\\r"),
             '\u{1b}' => quoted.push_str("\\e"),
             character if character <= '\u{1f}' || character == '\u{7f}' => {
-                write!(quoted, "\\u{:04X}", character as u32)
-                    .expect("writing to a String cannot fail");
+                let _ = write!(quoted, "\\u{:04X}", character as u32);
             }
             character => quoted.push(character),
         }

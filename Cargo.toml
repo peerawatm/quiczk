@@ -1,7 +1,15 @@
 [package]
 name = "quiczk"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2024"
+description = "Quiz yourself in TUI"
+repository = "https://github.com/peerawatm/quiczk"
+license = "MIT"
+keywords = ["tui", "quiz", "ratatui", "crossterm"]
+categories = ["command-line-utilities"]
+readme = "README.md"
+rust-version = "1.85"
+include = ["src/**/*", "tests/**/*", "example.toml", "README.md", "LICENSE"]
 
 [[bin]]
 name = "quiczk"
@@ -31,3 +39,6 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }

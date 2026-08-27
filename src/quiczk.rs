@@ -79,82 +79,74 @@ impl CliError {
 }
 
 fn parse_arguments(arguments: &[OsString]) -> Result<Action, CliError> {
-    let options_ended = arguments
-        .first()
-        .is_some_and(|argument| argument.as_os_str() == "--");
-    let arguments = if options_ended {
-        &arguments[1..]
+    let (args, options_ended) = if arguments.first().is_some_and(|arg| arg.as_os_str() == "--") {
+        (&arguments[1..], true)
     } else {
-        arguments
+        (arguments, false)
     };
 
-    let Some(first) = arguments.first() else {
+    let Some(first) = args.first() else {
         return Err(CliError::Usage);
     };
 
     if !options_ended {
         match first.to_str() {
             Some("help" | "-h" | "--help") => {
-                return if arguments.len() == 1 {
+                return if args.len() == 1 {
                     Ok(Action::Help)
                 } else {
-                    Err(CliError::UnexpectedArgument(PathBuf::from(&arguments[1])))
+                    Err(CliError::UnexpectedArgument(PathBuf::from(&args[1])))
                 };
             }
             Some("version" | "-v" | "--version") => {
-                return if arguments.len() == 1 {
+                return if args.len() == 1 {
                     Ok(Action::Version)
                 } else {
-                    Err(CliError::UnexpectedArgument(PathBuf::from(&arguments[1])))
+                    Err(CliError::UnexpectedArgument(PathBuf::from(&args[1])))
                 };
             }
             _ => {}
         }
-    }
-
-    if first == "fmt" {
-        if arguments.len() == 1 {
-            return Err(CliError::Usage);
-        }
-
-        let mut quiz_paths = Vec::with_capacity(arguments.len() - 1);
-        for argument in &arguments[1..] {
-            let quiz_path = PathBuf::from(argument);
-            if !is_toml_path(&quiz_path) {
-                return if is_path_argument(&quiz_path) {
-                    Err(CliError::NotToml(quiz_path))
-                } else {
-                    Err(CliError::UnexpectedArgument(quiz_path))
-                };
+        if first == "fmt" {
+            if args.len() == 1 {
+                return Err(CliError::Usage);
             }
-            quiz_paths.push(quiz_path);
+            let mut quiz_paths = Vec::with_capacity(args.len() - 1);
+            for arg in &args[1..] {
+                let path = PathBuf::from(arg);
+                if !is_toml_path(&path) {
+                    return Err(if is_file_like(&path) {
+                        CliError::NotToml(path)
+                    } else {
+                        CliError::UnexpectedArgument(path)
+                    });
+                }
+                quiz_paths.push(path);
+            }
+            return Ok(Action::Format(quiz_paths));
         }
-
-        return Ok(Action::Format(quiz_paths));
     }
 
     let quiz_path = PathBuf::from(first);
     if !is_toml_path(&quiz_path) {
-        return if is_path_argument(&quiz_path) {
-            Err(CliError::NotToml(quiz_path))
+        return Err(if is_file_like(&quiz_path) {
+            CliError::NotToml(quiz_path)
         } else {
-            Err(CliError::UnknownCommand(quiz_path))
-        };
+            CliError::UnknownCommand(quiz_path)
+        });
     }
 
-    let mut has_extra_quiz_path = false;
-    for argument in &arguments[1..] {
-        let path = PathBuf::from(argument);
-        if is_path_argument(&path) && !is_toml_path(&path) {
-            return Err(CliError::NotToml(path));
-        }
+    for arg in &args[1..] {
+        let path = PathBuf::from(arg);
         if !is_toml_path(&path) {
-            return Err(CliError::UnexpectedArgument(path));
+            return Err(if is_file_like(&path) {
+                CliError::NotToml(path)
+            } else {
+                CliError::UnexpectedArgument(path)
+            });
         }
-        has_extra_quiz_path = true;
     }
-
-    if has_extra_quiz_path {
+    if args.len() > 1 {
         return Err(CliError::MultipleQuizPaths);
     }
 
@@ -163,11 +155,11 @@ fn parse_arguments(arguments: &[OsString]) -> Result<Action, CliError> {
 
 fn is_toml_path(path: &Path) -> bool {
     path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("toml"))
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"))
 }
 
-fn is_path_argument(path: &Path) -> bool {
+fn is_file_like(path: &Path) -> bool {
     path.extension().is_some() || path.components().count() > 1
 }
 

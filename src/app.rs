@@ -3,15 +3,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rand::{Rng, RngExt, seq::SliceRandom};
+use rand::{RngExt, seq::SliceRandom};
 use ratatui::{
-    Frame, TerminalOptions, Viewport,
-    crossterm::{
-        cursor,
-        event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-        execute,
-        terminal::{self, Clear, ClearType},
-    },
+    Frame,
+    crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
@@ -28,13 +23,9 @@ pub struct App {
     answered: bool,
     score: usize,
     question_results: Vec<Option<bool>>,
-    shuffle_questions: bool,
-    shuffle_options: bool,
-    random_start_cursor: bool,
-    question_timer_seconds: Option<u64>,
+    config: Config,
     question_started_at: Instant,
     timed_out: bool,
-    hide_options_until_interact: bool,
     options_revealed: bool,
 }
 
@@ -46,36 +37,33 @@ struct RuntimeQuestion {
 }
 
 impl App {
-    pub fn new(quiz: Quiz, config: Config, title: String) -> Self {
-        let shuffle_questions = config.shuffle_questions;
-        let shuffle_options = config.shuffle_options;
-        let random_start_cursor = config.random_start_cursor;
-        let question_timer_seconds = config.question_timer_seconds.filter(|&seconds| seconds > 0);
-        let hide_options_until_interact = config.hide_options_until_interact;
+    pub fn new(quiz: Quiz, mut config: Config, title: String) -> Self {
+        config.question_timer_seconds = config.question_timer_seconds.filter(|&s| s > 0);
+        let hide = config.hide_options_until_interact;
+
         let mut questions = quiz
             .questions
             .into_iter()
             .zip(quiz.answers)
-            .map(|question| RuntimeQuestion {
-                answer: question.1.answer,
-                prompt: question.0.question,
-                options: question.0.options,
-                explanation: question.0.explanation,
+            .map(|q| RuntimeQuestion {
+                prompt: q.0.question,
+                options: q.0.options,
+                answer: q.1.answer,
+                explanation: q.0.explanation,
             })
             .collect::<Vec<_>>();
 
         let mut rng = rand::rng();
-        if shuffle_questions {
+        if config.shuffle_questions {
             questions.shuffle(&mut rng);
         }
-        if shuffle_options {
-            for question in &mut questions {
-                question.options.shuffle(&mut rng);
+        if config.shuffle_options {
+            for q in &mut questions {
+                q.options.shuffle(&mut rng);
             }
         }
 
         let question_count = questions.len();
-
         let mut app = Self {
             title,
             questions,
@@ -84,56 +72,21 @@ impl App {
             answered: false,
             score: 0,
             question_results: vec![None; question_count],
-            shuffle_questions,
-            shuffle_options,
-            random_start_cursor,
-            question_timer_seconds,
+            config,
             question_started_at: Instant::now(),
             timed_out: false,
-            hide_options_until_interact,
-            options_revealed: !hide_options_until_interact,
+            options_revealed: !hide,
         };
-
         app.selected_option = app.starting_option(&mut rng);
         app
-    }
-
-    fn viewport_height(&self, width: u16) -> u16 {
-        let question_height = self
-            .questions
-            .iter()
-            .map(|question| {
-                let prompt_lines = wrapped_line_count(&question.prompt, 0, width);
-                let options_lines: usize = question
-                    .options
-                    .iter()
-                    .map(|option| wrapped_line_count(option, 4, width))
-                    .sum();
-                let explanation_lines = question
-                    .explanation
-                    .as_deref()
-                    .map(|explanation| wrapped_line_count(explanation, 13, width).saturating_add(1))
-                    .unwrap_or(0);
-
-                1usize
-                    .saturating_add(prompt_lines)
-                    .saturating_add(1)
-                    .saturating_add(options_lines)
-                    .saturating_add(explanation_lines)
-            })
-            .max()
-            .unwrap_or(1)
-            .saturating_add(8)
-            .saturating_add(progress_lines(self, width).len());
-        question_height.min(u16::MAX as usize) as u16
     }
 
     fn current(&self) -> &RuntimeQuestion {
         &self.questions[self.question_index]
     }
 
-    fn starting_option(&self, rng: &mut impl Rng) -> usize {
-        if self.random_start_cursor {
+    fn starting_option(&self, rng: &mut impl RngExt) -> usize {
+        if self.config.random_start_cursor {
             rng.random_range(0..self.current().options.len())
         } else {
             0
@@ -141,11 +94,8 @@ impl App {
     }
 
     fn remaining_seconds(&self) -> Option<u64> {
-        let total = self.question_timer_seconds?;
-        if self.answered {
-            return None;
-        }
-        if !self.options_revealed {
+        let total = self.config.question_timer_seconds?;
+        if self.answered || !self.options_revealed {
             return Some(total);
         }
         let elapsed = self.question_started_at.elapsed().as_secs();
@@ -156,7 +106,7 @@ impl App {
         if self.answered || !self.options_revealed {
             return false;
         }
-        if let Some(total) = self.question_timer_seconds
+        if let Some(total) = self.config.question_timer_seconds
             && self.question_started_at.elapsed() >= Duration::from_secs(total)
         {
             self.answered = true;
@@ -169,15 +119,14 @@ impl App {
 
     fn restart(&mut self) {
         let mut rng = rand::rng();
-        if self.shuffle_questions {
+        if self.config.shuffle_questions {
             self.questions.shuffle(&mut rng);
         }
-        if self.shuffle_options {
-            for question in &mut self.questions {
-                question.options.shuffle(&mut rng);
+        if self.config.shuffle_options {
+            for q in &mut self.questions {
+                q.options.shuffle(&mut rng);
             }
         }
-
         self.question_index = 0;
         self.selected_option = self.starting_option(&mut rng);
         self.answered = false;
@@ -185,26 +134,27 @@ impl App {
         self.question_results.fill(None);
         self.question_started_at = Instant::now();
         self.timed_out = false;
-        self.options_revealed = !self.hide_options_until_interact;
+        self.options_revealed = !self.config.hide_options_until_interact;
     }
 
     fn handle_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
         match key {
-            KeyCode::Char('q') | KeyCode::Esc => true,
-            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => true,
-            _ if !self.options_revealed && !self.answered => {
-                self.options_revealed = true;
-                self.question_started_at = Instant::now();
-                false
-            }
+            KeyCode::Char('q') | KeyCode::Esc => return true,
+            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => return true,
+            _ => {}
+        }
+        if !self.options_revealed && !self.answered {
+            self.options_revealed = true;
+            self.question_started_at = Instant::now();
+            return false;
+        }
+        match key {
             KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('w') if !self.answered => {
                 self.selected_option = self.selected_option.saturating_sub(1);
-                false
             }
             KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('s') if !self.answered => {
                 self.selected_option =
                     (self.selected_option + 1).min(self.current().options.len() - 1);
-                false
             }
             KeyCode::Enter if !self.answered => {
                 self.answered = true;
@@ -213,7 +163,6 @@ impl App {
                 if correct {
                     self.score += 1;
                 }
-                false
             }
             KeyCode::Enter => {
                 if self.question_index + 1 < self.questions.len() {
@@ -223,30 +172,24 @@ impl App {
                     self.answered = false;
                     self.question_started_at = Instant::now();
                     self.timed_out = false;
-                    self.options_revealed = !self.hide_options_until_interact;
+                    self.options_revealed = !self.config.hide_options_until_interact;
                 } else {
                     self.restart();
                 }
-                false
             }
-            _ => false,
+            _ => {}
         }
+        false
     }
 }
 
 pub fn run(mut app: App) -> io::Result<()> {
-    let terminal_width = terminal::size().map(|(width, _)| width).unwrap_or(80);
-    execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
-    let options = TerminalOptions {
-        viewport: Viewport::Inline(app.viewport_height(terminal_width)),
-    };
-    let mut terminal = ratatui::try_init_with_options(options)?;
-
+    let mut terminal = ratatui::try_init()?;
     terminal.draw(|frame| draw(frame, &app))?;
 
-    let tick_rate = Duration::from_millis(100);
+    let tick = Duration::from_millis(100);
     let result = loop {
-        if event::poll(tick_rate)? {
+        if event::poll(tick)? {
             match event::read()? {
                 Event::Key(key)
                     if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
@@ -261,11 +204,8 @@ pub fn run(mut app: App) -> io::Result<()> {
                 }
                 _ => {}
             }
-        } else {
-            let timed_out = app.check_timeout();
-            if timed_out || app.remaining_seconds().is_some() {
-                terminal.draw(|frame| draw(frame, &app))?;
-            }
+        } else if app.check_timeout() || app.remaining_seconds().is_some() {
+            terminal.draw(|frame| draw(frame, &app))?;
         }
     };
 
@@ -279,7 +219,7 @@ fn draw(frame: &mut Frame, app: &App) {
     lines.extend([
         Line::default(),
         Line::from(format!("{}.", app.question_index + 1)),
-        Line::from(current.prompt.clone()),
+        Line::from(current.prompt.as_str()),
         Line::default(),
     ]);
 
@@ -313,7 +253,7 @@ fn draw(frame: &mut Frame, app: &App) {
             };
             lines.push(Line::from(vec![
                 Span::styled(marker, style),
-                Span::styled(option, style),
+                Span::styled(option.as_str(), style),
             ]));
         }
     }
@@ -328,7 +268,7 @@ fn draw(frame: &mut Frame, app: &App) {
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(explanation, Style::default().fg(Color::Reset)),
+                Span::styled(explanation.as_str(), Style::default().fg(Color::Reset)),
             ]));
         }
 
@@ -375,46 +315,22 @@ fn draw(frame: &mut Frame, app: &App) {
     );
 }
 
-fn wrapped_line_count(text: &str, prefix_len: usize, width: u16) -> usize {
-    let width = usize::from(width.max(1));
-    let mut total_lines = 0;
-    for (index, line) in text.lines().enumerate() {
-        let first_prefix = if index == 0 { prefix_len } else { 0 };
-        let mut current_line_len = first_prefix;
-        let mut lines_for_paragraph = 1;
-
-        for word in line.split_whitespace() {
-            let word_len = word.chars().count();
-            if current_line_len == 0 {
-                current_line_len = word_len;
-            } else if current_line_len + 1 + word_len <= width {
-                current_line_len += 1 + word_len;
-            } else {
-                lines_for_paragraph += 1;
-                current_line_len = word_len;
-            }
-        }
-        total_lines += lines_for_paragraph;
-    }
-    total_lines.max(1)
-}
-
 fn progress_lines(app: &App, width: u16) -> Vec<Line<'static>> {
-    let timer_info = if let Some(remaining) = app.remaining_seconds() {
-        format!(" | [{}s]", remaining)
+    let timer = app
+        .remaining_seconds()
+        .map(|s| format!(" | [{s}s]"))
+        .unwrap_or_default();
+    let label = if app.questions.len() == 1 {
+        "question"
     } else {
-        String::new()
+        "questions"
     };
     let mut lines = vec![Line::from(format!(
         "{} | {} {}{} ",
         app.title,
         app.questions.len(),
-        if app.questions.len() == 1 {
-            "question"
-        } else {
-            "questions"
-        },
-        timer_info,
+        label,
+        timer,
     ))];
     let width = usize::from(width.max(1));
     let prefix_width = lines[0].width();
@@ -425,7 +341,7 @@ fn progress_lines(app: &App, width: u16) -> Vec<Line<'static>> {
             Some(true) => Style::default().fg(Color::Green),
             Some(false) => Style::default().fg(Color::Red),
             None if index == app.question_index => Style::default().fg(Color::Reset),
-            None => Style::default().fg(Color::Rgb(128, 128, 128)),
+            None => Style::default().fg(Color::DarkGray),
         };
         let marker_width = Span::styled("■", style).width();
         let line_width = lines.last().map(Line::width).unwrap_or_default();
@@ -434,12 +350,10 @@ fn progress_lines(app: &App, width: u16) -> Vec<Line<'static>> {
         } else {
             line_width + 1 + marker_width > width
         };
-
         if should_wrap {
             lines.push(Line::raw(" ".repeat(prefix_width)));
             markers_on_line = 0;
         }
-
         let line = lines.last_mut().expect("progress always has a line");
         if markers_on_line > 0 {
             line.spans.push(Span::raw(" "));
