@@ -495,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "quiczk"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "rand",
  "ratatui",

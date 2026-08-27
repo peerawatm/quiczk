@@ -63,7 +63,7 @@ jobs:
             os: windows-2025
             build-tool: cargo
           - target: aarch64-pc-windows-msvc
-            os: windows-11-arm
+            os: windows-2025
             build-tool: cargo
           - target: x86_64-apple-darwin
             os: macos-26

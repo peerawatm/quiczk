@@ -38,7 +38,11 @@ fn version_aliases_print_version_to_stdout_and_exit_zero() {
         let output = run(&[argument]);
 
         assert_eq!(output.status.code(), Some(0), "{argument}");
-        assert_eq!(output.stdout, b"quiczk 0.0.1\n", "{argument}");
+        assert_eq!(
+            output.stdout,
+            format!("quiczk {}\n", env!("CARGO_PKG_VERSION")).as_bytes(),
+            "{argument}"
+        );
         assert_eq!(output.stderr, b"", "{argument}");
     }
 }
