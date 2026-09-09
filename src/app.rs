@@ -456,6 +456,7 @@ mod tests {
                 },
             ],
             answers: vec![Answer { answer: "A".into() }, Answer { answer: "C".into() }],
+            config: None,
         }
     }
 

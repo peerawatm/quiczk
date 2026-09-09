@@ -48,3 +48,10 @@ install: release
 
 vhs:
 	vhs vhs.tape
+	gifsicle -O3 vhs.gif -o vhs.gif
+
+# Bump patch version (0.0.x+1) in Cargo.toml and sync Cargo.lock.
+bump:
+	python3 -c 'import pathlib; p=pathlib.Path("Cargo.toml"); ls=p.read_text().splitlines(); i=next(n for n,l in enumerate(ls) if l.startswith("version = ")); M=ls[i].strip().removeprefix("version = ").strip("\"").split("."); M[2]=str(int(M[2])+1); ls[i]="version = \""+".".join(M)+"\""; p.write_text("\n".join(ls)+"\n"); print(ls[i])'
+	cargo check --quiet
+	@grep -m1 '^version' Cargo.toml

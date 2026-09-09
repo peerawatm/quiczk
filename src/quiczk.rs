@@ -164,8 +164,8 @@ fn is_file_like(path: &Path) -> bool {
 }
 
 fn run(quiz_path: PathBuf) -> Result<(), AppError> {
-    let config = Config::load()?;
     let quiz = Quiz::load(&quiz_path)?;
+    let config = Config::resolve(&quiz_path, quiz.config.as_ref())?;
     let title = quiz_path
         .file_stem()
         .and_then(|stem| stem.to_str())

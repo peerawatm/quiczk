@@ -9,6 +9,12 @@ Quiz yourself in TUI.
 ## TOML parsing format
 
 ```toml
+[config]
+shuffle_questions = false
+shuffle_options = false
+random_start_cursor = false
+hide_options_until_interact = true
+
 [quiczk]
 q1 = "Who is the author of quiczk?"
 o1 = [
@@ -40,5 +46,15 @@ shuffle_questions = false
 shuffle_options = true
 random_start_cursor = true
 hide_options_until_interact = true
-question_timer_seconds = 0 
+question_timer_seconds = 0
+```
+
+A quiz file can embed its own `[config]` table for per-quiz recommendations.
+Embedded keys take precedence over the XDG config file, which takes precedence
+over compiled defaults. Omitted keys fall through to the next layer, and an
+omitted or `0` timer disables the countdown:
+
+```toml
+[config]
+question_timer_seconds = 30
 ```

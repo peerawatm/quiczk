@@ -1,3 +1,9 @@
+[config]
+shuffle_questions = false
+shuffle_options = false
+random_start_cursor = false
+hide_options_until_interact = true
+
 [quiczk]
 q1 = "Who is the author of quiczk?"
 o1 = [

@@ -13,6 +13,7 @@ use crate::error::AppError;
 pub struct Quiz {
     pub questions: Vec<Question>,
     pub answers: Vec<Answer>,
+    pub config: Option<Table>,
 }
 
 #[derive(Debug)]
@@ -59,7 +60,17 @@ impl Quiz {
     }
 
     pub fn format_source(&self) -> String {
-        let mut formatted = String::from("[quiczk]\n");
+        let mut formatted = String::new();
+        if let Some(config) = &self.config {
+            // Round-trip the embedded table as authored. Resolved XDG values
+            // are never baked in, so formatting stays side-effect free.
+            let mut doc = Table::new();
+            doc.insert("config".to_owned(), Value::Table(config.clone()));
+            formatted
+                .push_str(&toml::to_string(&doc).expect("embedded config table must serialize"));
+            formatted.push('\n');
+        }
+        formatted.push_str("[quiczk]\n");
         for (index, (question, answer)) in self.questions.iter().zip(&self.answers).enumerate() {
             let number = index + 1;
             let _ = writeln!(formatted, "q{number} = {}", quoted(&question.question));
@@ -81,13 +92,21 @@ impl Quiz {
 
     fn from_document(path: &Path, source: &str, document: Table) -> Result<Self, AppError> {
         for key in document.keys() {
-            if key != "quiczk" {
+            if key != "quiczk" && key != "config" {
                 return Err(AppError::validation(
                     path,
                     format!("unexpected top-level table `{key}`"),
                 ));
             }
         }
+
+        let embedded = match document.get("config") {
+            None => None,
+            Some(Value::Table(table)) => Some(table.clone()),
+            Some(_) => {
+                return Err(AppError::validation(path, "[config] must be a table"));
+            }
+        };
 
         let quiz = section(&document, "quiczk", path)?;
         validate_key_prefixes(quiz, &["q", "o", "a", "e"], "quiczk", path)?;
@@ -172,6 +191,7 @@ impl Quiz {
         Ok(Self {
             questions: parsed_questions,
             answers: parsed_answers,
+            config: embedded,
         })
     }
 }
@@ -750,5 +770,92 @@ mod tests {
                 .to_string()
                 .contains("e2 is provided without matching q2")
         );
+    }
+
+    #[test]
+    fn legacy_quiz_has_no_embedded_config() {
+        let source = r#"
+            [quiczk]
+            q1 = "Question"
+            o1 = ["one", "two"]
+            a1 = "one"
+            "#;
+        let quiz = parse(source).expect("quiz without config must validate");
+
+        assert!(quiz.config.is_none());
+        assert!(quiz.format_source().starts_with("[quiczk]\n"));
+    }
+
+    #[test]
+    fn extracts_embedded_config_table() {
+        let source = r#"
+            [config]
+            question_timer_seconds = 30
+
+            [quiczk]
+            q1 = "Question"
+            o1 = ["one", "two"]
+            a1 = "one"
+            "#;
+        let quiz = parse(source).expect("quiz with embedded config must validate");
+        let config = quiz.config.expect("embedded config must be extracted");
+
+        assert_eq!(
+            config
+                .get("question_timer_seconds")
+                .and_then(Value::as_integer),
+            Some(30)
+        );
+    }
+
+    #[test]
+    fn rejects_non_table_config() {
+        let source = r#"
+            config = "nope"
+
+            [quiczk]
+            q1 = "Question"
+            o1 = ["one", "two"]
+            a1 = "one"
+            "#;
+
+        let error = parse(source).expect_err("non-table config must fail");
+
+        assert!(error.to_string().contains("[config] must be a table"));
+    }
+
+    #[test]
+    fn formats_embedded_config_and_round_trips() {
+        let source = r#"
+            [config]
+            question_timer_seconds = 30
+            shuffle_questions = false
+
+            [quiczk]
+            q1 = "Question"
+            o1 = ["one", "two"]
+            a1 = "one"
+            "#;
+        let quiz = parse(source).expect("quiz with embedded config must validate");
+
+        let expected = concat!(
+            "[config]\n",
+            "question_timer_seconds = 30\n",
+            "shuffle_questions = false\n",
+            "\n",
+            "[quiczk]\n",
+            "q1 = \"Question\"\n",
+            "o1 = [\n",
+            "  \"one\",\n",
+            "  \"two\",\n",
+            "]\n",
+            "a1 = \"one\"\n",
+        );
+
+        assert_eq!(quiz.format_source(), expected);
+        let reformatted = parse(&quiz.format_source())
+            .expect("formatted quiz must validate")
+            .format_source();
+        assert_eq!(reformatted, expected);
     }
 }
