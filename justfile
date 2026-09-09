@@ -40,6 +40,8 @@ dist-check:
 	file target/x86_64-pc-windows-msvc/release/quiczk.exe || file target/x86_64-pc-windows-gnu/release/quiczk.exe || true
 	file target/aarch64-pc-windows-msvc/release/quiczk.exe || file target/aarch64-pc-windows-gnu/release/quiczk.exe || true
 
+# macOS only: BSD install replaces the binary via fresh inode,
+# avoiding stale code-signing verdicts from in-place overwrites.
 install: release
 	mkdir -p ~/.local/bin
-	cp target/release/quiczk ~/.local/bin/
+	install -m 755 target/release/quiczk ~/.local/bin/
