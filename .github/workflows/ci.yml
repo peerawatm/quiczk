@@ -16,6 +16,7 @@ jobs:
   check:
     name: Check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -47,3 +48,7 @@ jobs:
 
       - name: Build release binary
         run: cargo build --workspace --release
+
+      - name: Summarize verification
+        if: always()
+        run: echo "CI ${{ matrix.os }} finished with status ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"

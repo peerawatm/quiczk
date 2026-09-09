@@ -12,37 +12,36 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  verify:
-    name: Verify release
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Run tests
-        run: cargo test --workspace --all-targets --all-features
-
-      - name: Build release binary
-        run: cargo build --workspace --release
-
   create-release:
-    name: Create GitHub Release
-    needs: verify
+    name: Create draft release
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-      - name: Create release
-        uses: taiki-e/create-gh-release-action@v1
+      - name: Reject tags outside main
+        run: git merge-base --is-ancestor HEAD origin/main
+
+      - name: Create draft release with generated notes
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+
+      - name: Summarize release
+        run: |
+          echo "### Release ${{ github.ref_name }} (draft)" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Branch gate: tag reachable from origin/main" >> "$GITHUB_STEP_SUMMARY"
 
   upload-binaries:
     name: Build ${{ matrix.target }}
     needs: create-release
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -76,6 +75,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
       - name: Build and upload binary
         uses: step-security/upload-rust-binary-action@v1
         with:
@@ -84,3 +86,21 @@ jobs:
           build-tool: ${{ matrix.build-tool }}
           tar: unix
           zip: windows
+
+      - name: Summarize upload
+        if: always()
+        run: echo "Target ${{ matrix.target }} finished with status ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+
+  publish-release:
+    name: Publish release
+    needs: upload-binaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Publish draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ github.ref_name }}" --draft=false
+
+      - name: Summarize publish
+        run: echo "### Release ${{ github.ref_name }} published" >> "$GITHUB_STEP_SUMMARY"

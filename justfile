@@ -7,15 +7,15 @@ dev:
 	cargo build
 
 fmt:
-	cargo fmt --check
+	cargo fmt --all -- --check
 
 test:
-	cargo check --all-targets
-	cargo clippy --all-targets -- -D warnings
-	cargo test --all-targets
+	cargo check --workspace --all-targets --all-features
+	cargo clippy --workspace --all-targets --all-features -- -D warnings
+	cargo test --workspace --all-targets --all-features
 
 release: test
-	cargo build --release
+	cargo build --workspace --release
 
 # PE + ELF + Mach-O, both archs — mirrors .github/workflows/release.yml
 dist:
