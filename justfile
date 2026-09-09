@@ -45,3 +45,6 @@ dist-check:
 install: release
 	mkdir -p ~/.local/bin
 	install -m 755 target/release/quiczk ~/.local/bin/
+
+vhs:
+	vhs vhs.tape

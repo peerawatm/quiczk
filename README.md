@@ -2,6 +2,10 @@
 
 Quiz yourself in TUI.
 
+<p align="center">
+  <img src="vhs.gif" alt="quiczk TUI demo" />
+</p>
+
 ## TOML parsing format
 
 ```toml
@@ -35,5 +39,6 @@ e2 = "':wq' writes changes and quits the editor."
 shuffle_questions = false
 shuffle_options = true
 random_start_cursor = true
-question_timer_seconds = 15
+hide_options_until_interact = true
+question_timer_seconds = 0 
 ```
