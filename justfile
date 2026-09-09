@@ -46,7 +46,7 @@ install: release
 	mkdir -p ~/.local/bin
 	install -m 755 target/release/quiczk ~/.local/bin/
 
-vhs:
+vhs: install
 	vhs vhs.tape
 	gifsicle -O3 vhs.gif -o vhs.gif
 
