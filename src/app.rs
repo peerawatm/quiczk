@@ -284,8 +284,7 @@ fn draw(frame: &mut Frame, app: &App, remaining: Option<u64>) {
     lines.reserve(8 + current.options.len());
     lines.extend([
         Line::default(),
-        Line::from(format!("{}.", app.question_index + 1)),
-        Line::from(current.prompt.as_str()),
+        Line::from(format!("{}. {}", app.question_index + 1, current.prompt)),
         Line::default(),
     ]);
 
@@ -509,5 +508,72 @@ mod tests {
         assert_eq!(app.question_index, 1);
         assert!(!app.options_revealed);
         assert!(!app.answered);
+    }
+
+    fn header_text(app: &App) -> String {
+        progress_lines(app, 80, None)[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    #[test]
+    fn progress_uses_singular_question_for_single_quiz() {
+        let quiz = Quiz {
+            questions: vec![Question {
+                question: "Only".into(),
+                options: vec!["A".into(), "B".into()],
+                explanation: None,
+            }],
+            answers: vec![Answer { answer: "A".into() }],
+            config: None,
+        };
+        let app = App::new(quiz, Config::default(), "Test".into());
+        let header = header_text(&app);
+
+        assert!(header.contains("1 question"));
+        assert!(!header.contains("1 questions"));
+    }
+
+    #[test]
+    fn progress_uses_plural_questions_for_multiple_quizzes() {
+        let app = App::new(sample_quiz(), Config::default(), "Test".into());
+        let header = header_text(&app);
+
+        assert!(header.contains("2 questions"));
+    }
+
+    #[test]
+    fn draw_places_number_and_prompt_on_one_line() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let quiz = Quiz {
+            questions: vec![Question {
+                question: "H".into(),
+                options: vec!["7".into(), "8".into()],
+                explanation: None,
+            }],
+            answers: vec![Answer { answer: "8".into() }],
+            config: None,
+        };
+        let config = Config {
+            hide_options_until_interact: false,
+            ..Config::default()
+        };
+        let app = App::new(quiz, config, "Test".into());
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).expect("terminal must build");
+        terminal
+            .draw(|frame| draw(frame, &app, None))
+            .expect("draw must succeed");
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+
+        assert!(text.contains("1. H"));
     }
 }

@@ -49,10 +49,7 @@ hide_options_until_interact = true
 question_timer_seconds = 0
 ```
 
-A quiz file can embed its own `[config]` table for per-quiz recommendations.
-Embedded keys take precedence over the XDG config file, which takes precedence
-over compiled defaults. Omitted keys fall through to the next layer, and an
-omitted or `0` timer disables the countdown:
+A quiz file can set its own `[config]`. Quiz file wins over XDG config, XDG config wins over defaults. Missing keys fall through, missing or `0` timer means off:
 
 ```toml
 [config]

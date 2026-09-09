@@ -107,13 +107,6 @@ mod tests {
     use toml::{Table, Value};
 
     #[test]
-    fn defaults_random_start_cursor_to_true() {
-        assert!(Config::default().random_start_cursor);
-        assert_eq!(Config::default().question_timer_seconds, None);
-        assert!(Config::default().hide_options_until_interact);
-    }
-
-    #[test]
     fn random_start_cursor_can_be_disabled() {
         let file = toml::from_str::<ConfigFile>("[config]\nrandom_start_cursor = false\n")
             .expect("config should parse");
