@@ -1,9 +1,10 @@
 use std::{
+    fmt::Write as _,
     io,
     time::{Duration, Instant},
 };
 
-use rand::{RngExt, seq::SliceRandom};
+use rand::{RngExt, rngs::ThreadRng, seq::SliceRandom};
 use ratatui::{
     Frame,
     crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -27,6 +28,7 @@ pub struct App {
     question_started_at: Instant,
     timed_out: bool,
     options_revealed: bool,
+    rng: Option<ThreadRng>,
 }
 
 struct RuntimeQuestion {
@@ -53,13 +55,16 @@ impl App {
             })
             .collect::<Vec<_>>();
 
-        let mut rng = rand::rng();
+        // RNG is created only when shuffle or random cursor needs it,
+        // avoiding a getrandom syscall plus ChaCha seeding otherwise.
+        let mut rng: Option<ThreadRng> = None;
         if config.shuffle_questions {
-            questions.shuffle(&mut rng);
+            questions.shuffle(rng.get_or_insert_with(rand::rng));
         }
         if config.shuffle_options {
+            let rng = rng.get_or_insert_with(rand::rng);
             for q in &mut questions {
-                q.options.shuffle(&mut rng);
+                q.options.shuffle(&mut *rng);
             }
         }
 
@@ -76,8 +81,9 @@ impl App {
             question_started_at: Instant::now(),
             timed_out: false,
             options_revealed: !hide,
+            rng,
         };
-        app.selected_option = app.starting_option(&mut rng);
+        app.selected_option = app.next_start_index();
         app
     }
 
@@ -85,12 +91,17 @@ impl App {
         &self.questions[self.question_index]
     }
 
-    fn starting_option(&self, rng: &mut impl RngExt) -> usize {
+    fn next_start_index(&mut self) -> usize {
+        let len = self.questions[self.question_index].options.len();
         if self.config.random_start_cursor {
-            rng.random_range(0..self.current().options.len())
+            self.rng.get_or_insert_with(rand::rng).random_range(0..len)
         } else {
             0
         }
+    }
+
+    fn timer_running(&self) -> bool {
+        self.config.question_timer_seconds.is_some() && !self.answered && self.options_revealed
     }
 
     fn remaining_seconds(&self) -> Option<u64> {
@@ -102,33 +113,35 @@ impl App {
         Some(total.saturating_sub(elapsed))
     }
 
-    fn check_timeout(&mut self) -> bool {
+    /// Single-elapsed timer tick. Returns remaining on active countdown.
+    fn poll_timer(&mut self) -> Option<u64> {
+        let total = self.config.question_timer_seconds?;
         if self.answered || !self.options_revealed {
-            return false;
+            return None;
         }
-        if let Some(total) = self.config.question_timer_seconds
-            && self.question_started_at.elapsed() >= Duration::from_secs(total)
-        {
+        let elapsed = self.question_started_at.elapsed();
+        if elapsed >= Duration::from_secs(total) {
             self.answered = true;
             self.timed_out = true;
             self.question_results[self.question_index] = Some(false);
-            return true;
+            return Some(total);
         }
-        false
+        Some(total.saturating_sub(elapsed.as_secs()))
     }
 
     fn restart(&mut self) {
-        let mut rng = rand::rng();
         if self.config.shuffle_questions {
-            self.questions.shuffle(&mut rng);
+            let rng = self.rng.get_or_insert_with(rand::rng);
+            self.questions.shuffle(&mut *rng);
         }
         if self.config.shuffle_options {
+            let rng = self.rng.get_or_insert_with(rand::rng);
             for q in &mut self.questions {
-                q.options.shuffle(&mut rng);
+                q.options.shuffle(&mut *rng);
             }
         }
         self.question_index = 0;
-        self.selected_option = self.starting_option(&mut rng);
+        self.selected_option = self.next_start_index();
         self.answered = false;
         self.score = 0;
         self.question_results.fill(None);
@@ -167,8 +180,7 @@ impl App {
             KeyCode::Enter => {
                 if self.question_index + 1 < self.questions.len() {
                     self.question_index += 1;
-                    let mut rng = rand::rng();
-                    self.selected_option = self.starting_option(&mut rng);
+                    self.selected_option = self.next_start_index();
                     self.answered = false;
                     self.question_started_at = Instant::now();
                     self.timed_out = false;
@@ -183,39 +195,93 @@ impl App {
     }
 }
 
+/// Restores the terminal on early error returns from the event loop.
+struct RestoreGuard {
+    armed: bool,
+}
+
+impl Drop for RestoreGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = ratatui::try_restore();
+        }
+    }
+}
+
 pub fn run(mut app: App) -> io::Result<()> {
     let mut terminal = ratatui::try_init()?;
-    terminal.draw(|frame| draw(frame, &app))?;
+    let _restore = RestoreGuard { armed: true };
+    let mut remaining = app.remaining_seconds();
+    terminal.draw(|frame| draw(frame, &app, remaining))?;
 
-    let tick = Duration::from_millis(100);
+    let mut last_remaining = remaining;
     let result = loop {
-        if event::poll(tick)? {
+        let running = app.timer_running();
+        // Block when idle so quiczk sleeps at 0% CPU. Wake on next
+        // second boundary only while countdown is active.
+        let timeout = if running {
+            let ms_into_sec = app.question_started_at.elapsed().subsec_millis();
+            Duration::from_millis(1000 - u64::from(ms_into_sec.min(999)))
+        } else {
+            Duration::from_secs(3600)
+        };
+        if event::poll(timeout)? {
             match event::read()? {
                 Event::Key(key)
                     if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
                 {
+                    // Snapshot visible state so no-op keys skip redraw.
+                    let before = (
+                        app.question_index,
+                        app.selected_option,
+                        app.answered,
+                        app.timed_out,
+                        app.options_revealed,
+                        app.score,
+                    );
                     if app.handle_key(key.code, key.modifiers) {
                         break Ok(());
                     }
-                    terminal.draw(|frame| draw(frame, &app))?;
+                    let after = (
+                        app.question_index,
+                        app.selected_option,
+                        app.answered,
+                        app.timed_out,
+                        app.options_revealed,
+                        app.score,
+                    );
+                    if after != before {
+                        remaining = app.remaining_seconds();
+                        last_remaining = remaining;
+                        terminal.draw(|frame| draw(frame, &app, remaining))?;
+                    }
                 }
                 Event::Resize(..) => {
-                    terminal.draw(|frame| draw(frame, &app))?;
+                    terminal.draw(|frame| draw(frame, &app, remaining))?;
                 }
                 _ => {}
             }
-        } else if app.check_timeout() || app.remaining_seconds().is_some() {
-            terminal.draw(|frame| draw(frame, &app))?;
+        } else if running {
+            let was_answered = app.answered;
+            if let Some(now) = app.poll_timer() {
+                if Some(now) != last_remaining || app.answered != was_answered {
+                    last_remaining = Some(now);
+                    remaining = Some(now);
+                    terminal.draw(|frame| draw(frame, &app, remaining))?;
+                }
+            }
         }
     };
 
     ratatui::try_restore()?;
+    std::mem::forget(_restore);
     result
 }
 
-fn draw(frame: &mut Frame, app: &App) {
+fn draw(frame: &mut Frame, app: &App, remaining: Option<u64>) {
     let current = app.current();
-    let mut lines = progress_lines(app, frame.area().width);
+    let mut lines = progress_lines(app, frame.area().width, remaining);
+    lines.reserve(8 + current.options.len());
     lines.extend([
         Line::default(),
         Line::from(format!("{}.", app.question_index + 1)),
@@ -315,25 +381,27 @@ fn draw(frame: &mut Frame, app: &App) {
     );
 }
 
-fn progress_lines(app: &App, width: u16) -> Vec<Line<'static>> {
-    let timer = app
-        .remaining_seconds()
-        .map(|s| format!(" | [{s}s]"))
-        .unwrap_or_default();
+fn progress_lines(app: &App, width: u16, remaining: Option<u64>) -> Vec<Line<'static>> {
     let label = if app.questions.len() == 1 {
         "question"
     } else {
         "questions"
     };
-    let mut lines = vec![Line::from(format!(
-        "{} | {} {}{} ",
-        app.title,
-        app.questions.len(),
-        label,
-        timer,
-    ))];
+    let mut header = String::with_capacity(app.title.len() + 32);
+    header.push_str(app.title.as_str());
+    let _ = write!(header, " | {} {}", app.questions.len(), label);
+    if let Some(s) = remaining {
+        let _ = write!(header, " | [{s}s]");
+    }
+    header.push(' ');
+    let mut lines = vec![Line::from(std::mem::take(&mut header))];
+    lines.reserve(2);
+    lines[0]
+        .spans
+        .reserve(app.question_results.len().saturating_mul(2));
     let width = usize::from(width.max(1));
     let prefix_width = lines[0].width();
+    let mut line_width = prefix_width;
     let mut markers_on_line = 0;
 
     for (index, result) in app.question_results.iter().enumerate() {
@@ -343,22 +411,25 @@ fn progress_lines(app: &App, width: u16) -> Vec<Line<'static>> {
             None if index == app.question_index => Style::default().fg(Color::Reset),
             None => Style::default().fg(Color::DarkGray),
         };
-        let marker_width = Span::styled("■", style).width();
-        let line_width = lines.last().map(Line::width).unwrap_or_default();
+        // Marker width is constant, track line width instead of rescanning.
+        const MARKER_WIDTH: usize = 1;
         let should_wrap = if markers_on_line == 0 {
-            lines.len() == 1 && line_width + marker_width > width
+            lines.len() == 1 && line_width + MARKER_WIDTH > width
         } else {
-            line_width + 1 + marker_width > width
+            line_width + 1 + MARKER_WIDTH > width
         };
         if should_wrap {
             lines.push(Line::raw(" ".repeat(prefix_width)));
+            line_width = prefix_width;
             markers_on_line = 0;
         }
         let line = lines.last_mut().expect("progress always has a line");
         if markers_on_line > 0 {
             line.spans.push(Span::raw(" "));
+            line_width += 1;
         }
         line.spans.push(Span::styled("■", style));
+        line_width += MARKER_WIDTH;
         markers_on_line += 1;
     }
 

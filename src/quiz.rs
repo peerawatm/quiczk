@@ -1,4 +1,9 @@
-use std::{collections::BTreeSet, fmt::Write, fs, path::Path};
+use std::{
+    collections::BTreeSet,
+    fmt::Write,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use toml::{Table, Value};
 
@@ -45,7 +50,12 @@ impl Quiz {
 
     pub fn format_in_place(path: &Path) -> Result<(), AppError> {
         let quiz = Self::load(path)?;
-        fs::write(path, quiz.format_source()).map_err(|source| AppError::io(path, source))
+        // Atomic sibling rename avoids truncating the quiz on crash.
+        let mut tmp = path.as_os_str().to_owned();
+        tmp.push(".tmp");
+        let tmp = PathBuf::from(tmp);
+        fs::write(&tmp, quiz.format_source()).map_err(|source| AppError::io(path, source))?;
+        fs::rename(&tmp, path).map_err(|source| AppError::io(path, source))
     }
 
     pub fn format_source(&self) -> String {
@@ -236,6 +246,10 @@ fn validate_matching_numbers(
     answer_numbers: &BTreeSet<usize>,
     path: &Path,
 ) -> Result<(), AppError> {
+    // Fast path avoids all allocation on valid quizzes.
+    if question_numbers == option_numbers && question_numbers == answer_numbers {
+        return Ok(());
+    }
     let numbers = question_numbers
         .iter()
         .chain(option_numbers)
@@ -343,7 +357,6 @@ fn options_value(table: &Table, key: &str, path: &Path) -> Result<Vec<String>, A
         ));
     }
 
-    let mut seen = BTreeSet::new();
     let mut parsed = Vec::with_capacity(options.len());
     for (index, option) in options.iter().enumerate() {
         let value = option
@@ -353,7 +366,9 @@ fn options_value(table: &Table, key: &str, path: &Path) -> Result<Vec<String>, A
             .ok_or_else(|| {
                 AppError::validation(path, format!("{key}[{index}] must be a non-empty string"))
             })?;
-        if !seen.insert(value.clone()) {
+        // Linear scan avoids a second heap allocation plus tree nodes per
+        // option. Option counts are tiny so O(O^2) compares beat O(O log O).
+        if parsed.contains(&value) {
             return Err(AppError::validation(
                 path,
                 format!("{key} contains duplicate option `{value}`"),
