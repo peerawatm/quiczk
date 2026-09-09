@@ -1,7 +1,5 @@
 # quiczk
 
-Quiz yourself in TUI.
-
 <p align="center">
   <img src="vhs.gif" alt="quiczk TUI demo" />
 </p>
@@ -38,7 +36,7 @@ e2 = "':wq' writes changes and quits the editor."
 
 ## Config
 
-`$XDG_CONFIG_HOME/quiczk/config.toml`, or `~/.config/quiczk/config.toml`:
+`$XDG_CONFIG_HOME/quiczk/config.toml`, `~/.config/quiczk/config.toml`, or on Windows `%USERPROFILE%\.config\quiczk\config.toml` falling back to `%APPDATA%\quiczk\config.toml`:
 
 ```toml
 [config]
@@ -50,8 +48,3 @@ question_timer_seconds = 0
 ```
 
 A quiz file can set its own `[config]`. Quiz file wins over XDG config, XDG config wins over defaults. Missing keys fall through, missing or `0` timer means off:
-
-```toml
-[config]
-question_timer_seconds = 30
-```
