@@ -249,6 +249,12 @@ fn numbered_keys(
                 format!("{section}.{key} must start at 1"),
             ));
         }
+        if key.as_str() != format!("{prefix}{number}") {
+            return Err(AppError::validation(
+                path,
+                format!("{section}.{key} must be written as {prefix}{number}"),
+            ));
+        }
         if !numbers.insert(number) {
             return Err(AppError::validation(
                 path,
@@ -770,6 +776,30 @@ mod tests {
                 .to_string()
                 .contains("e2 is provided without matching q2")
         );
+    }
+
+    #[test]
+    fn rejects_non_canonical_numeric_keys() {
+        let source = r#"
+            [quiczk]
+            q1 = "Question 1"
+            o1 = ["opt1", "opt2"]
+            a1 = "opt1"
+            e01 = "A leading zero would otherwise be silently dropped"
+            "#;
+        let error = parse(source).expect_err("leading-zero explanation key must fail");
+
+        assert!(error.to_string().contains("e01 must be written as e1"));
+
+        let source = r#"
+            [quiczk]
+            q01 = "Question 1"
+            o01 = ["opt1", "opt2"]
+            a01 = "opt1"
+            "#;
+        let error = parse(source).expect_err("leading-zero question key must fail");
+
+        assert!(error.to_string().contains("q01 must be written as q1"));
     }
 
     #[test]

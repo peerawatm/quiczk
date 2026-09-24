@@ -101,12 +101,12 @@ impl App {
     }
 
     fn timer_running(&self) -> bool {
-        self.config.question_timer_seconds.is_some() && !self.answered && self.options_revealed
+        self.config.question_timer_seconds.is_some() && !self.answered
     }
 
     fn remaining_seconds(&self) -> Option<u64> {
         let total = self.config.question_timer_seconds?;
-        if self.answered || !self.options_revealed {
+        if self.answered {
             return Some(total);
         }
         let elapsed = self.question_started_at.elapsed().as_secs();
@@ -116,13 +116,14 @@ impl App {
     /// Single-elapsed timer tick. Returns remaining on active countdown.
     fn poll_timer(&mut self) -> Option<u64> {
         let total = self.config.question_timer_seconds?;
-        if self.answered || !self.options_revealed {
+        if self.answered {
             return None;
         }
         let elapsed = self.question_started_at.elapsed();
         if elapsed >= Duration::from_secs(total) {
             self.answered = true;
             self.timed_out = true;
+            self.options_revealed = true;
             self.question_results[self.question_index] = Some(false);
             return Some(total);
         }
@@ -158,7 +159,6 @@ impl App {
         }
         if !self.options_revealed && !self.answered {
             self.options_revealed = true;
-            self.question_started_at = Instant::now();
             return false;
         }
         match key {

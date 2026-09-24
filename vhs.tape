@@ -4,41 +4,43 @@ Set Shell zsh
 Set FontSize 20
 Set Width 1200
 Set Height 750
-Set TypingSpeed 75ms
+Set TypingSpeed 55ms
 Set Framerate 60
 Set Padding 10
 
 Hide
 Type "clear"
 Enter
-Sleep 500ms
+Sleep 400ms
 Show
 
-Type@150ms "quiczk"
-Sleep 500ms
-Type " e"
-Sleep 500ms
-Tab
-Sleep 500ms
+Type@70ms "quiczk "
+Sleep 250ms
+Type@45ms "example.toml"
+Sleep 650ms
 Enter
 Wait+Screen /reveal options/
-Sleep 1500ms
+Sleep 950ms
 Enter
-Wait+Screen /Peerawat Monviset/
-Sleep 2s
-Down
-Sleep 800ms
+Wait+Screen /Linus Benedict Torvalds/
+Sleep 750ms
+Down@150ms
+Sleep 350ms
 Enter
 Wait+Screen /next question/
-Sleep 2s
+Sleep 1300ms
 Enter
 Wait+Screen /reveal options/
-Sleep 1200ms
+Sleep 950ms
 Enter
-Wait+Screen /How do you exit Vim/
-Sleep 2s
+Wait+Screen /buy a new laptop/
+Sleep 900ms
+Down@150ms
+Sleep 650ms
 Enter
+Wait+Screen /Explanation:/
+Sleep 1600ms
 Wait+Screen /Score:/
-Sleep 3500ms
+Sleep 2800ms
 Type "q"
-Sleep 1s
+Sleep 400ms
