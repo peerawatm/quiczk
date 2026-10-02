@@ -1,0 +1,8 @@
+[quiczk]
+q1 = "What is the default shell on macOS?"
+o1 = ["bash", "zsh", "fish"]
+a1 = "zsh"
+
+q2 = "What command lists files?"
+o2 = ["ls", "cd", "pwd"]
+a2 = "ls"
