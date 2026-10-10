@@ -1,0 +1,18 @@
+---
+source: src/quiz.rs
+expression: formatted
+---
+[quiczk]
+q1 = "First question"
+o1 = [
+  "one",
+  "two",
+]
+a1 = "one"
+
+q2 = "Second question"
+o2 = [
+  "three",
+  "four",
+]
+a2 = "four"

@@ -681,27 +681,13 @@ mod tests {
             "#;
         let quiz = parse(source).expect("quiz must validate");
 
-        let expected = concat!(
-            "[quiczk]\n",
-            "q1 = \"First question\"\n",
-            "o1 = [\n",
-            "  \"one\",\n",
-            "  \"two\",\n",
-            "]\n",
-            "a1 = \"one\"\n\n",
-            "q2 = \"Second question\"\n",
-            "o2 = [\n",
-            "  \"three\",\n",
-            "  \"four\",\n",
-            "]\n",
-            "a2 = \"four\"\n",
-        );
+        let formatted = quiz.format_source();
+        insta::assert_snapshot!("grouped_multiline_blocks", formatted);
 
-        assert_eq!(quiz.format_source(), expected);
-        let reformatted = parse(&quiz.format_source())
+        let reformatted = parse(&formatted)
             .expect("formatted quiz must validate")
             .format_source();
-        assert_eq!(reformatted, expected);
+        assert_eq!(reformatted, formatted);
     }
 
     #[test]
@@ -868,24 +854,106 @@ mod tests {
             "#;
         let quiz = parse(source).expect("quiz with embedded config must validate");
 
-        let expected = concat!(
-            "[config]\n",
-            "question_timer_seconds = 30\n",
-            "shuffle_questions = false\n",
-            "\n",
-            "[quiczk]\n",
-            "q1 = \"Question\"\n",
-            "o1 = [\n",
-            "  \"one\",\n",
-            "  \"two\",\n",
-            "]\n",
-            "a1 = \"one\"\n",
-        );
+        let formatted = quiz.format_source();
+        insta::assert_snapshot!("embedded_config_round_trip", formatted);
 
-        assert_eq!(quiz.format_source(), expected);
-        let reformatted = parse(&quiz.format_source())
+        let reformatted = parse(&formatted)
             .expect("formatted quiz must validate")
             .format_source();
-        assert_eq!(reformatted, expected);
+        assert_eq!(reformatted, formatted);
+    }
+
+    #[test]
+    fn formatter_escapes_control_characters_round_trip() {
+        let tricky = "esc\tbel\u{7}\u{8}\u{c}\r\n nul\u{0} quote\" slash\\ del\u{7f}";
+        let question = Question {
+            question: format!("prompt {tricky}"),
+            options: vec![format!("0:{tricky}"), "1:plain".to_owned()],
+            explanation: Some(format!("note {tricky}")),
+        };
+        let quiz = Quiz {
+            questions: vec![question],
+            answers: vec![Answer {
+                answer: format!("0:{tricky}"),
+            }],
+            config: None,
+        };
+
+        let reparsed = Quiz::from_source(Path::new("quiz.toml"), &quiz.format_source())
+            .expect("escaped quiz must re-parse");
+
+        assert_eq!(reparsed.questions[0].options[0], format!("0:{tricky}"));
+        assert_eq!(
+            reparsed.questions[0].explanation.as_deref(),
+            Some(format!("note {tricky}").as_str())
+        );
+    }
+
+    use proptest::prelude::*;
+
+    fn question_pair_strategy() -> impl Strategy<Value = (Question, Answer)> {
+        (
+            prop::collection::vec(any::<String>(), 2..=6),
+            any::<prop::sample::Index>(),
+            prop::option::of(any::<String>()),
+        )
+            .prop_map(|(raw_options, answer_index, explanation)| {
+                // The numeric prefix guarantees distinct, non-empty options,
+                // so every generated quiz satisfies schema validation. Arbitrary
+                // Unicode (quotes, backslashes, control characters) still flows
+                // through to exercise `quoted` escaping.
+                let options = raw_options
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, option)| format!("{index}:{option}"))
+                    .collect::<Vec<_>>();
+                let answer = options[answer_index.index(options.len())].clone();
+                let question = Question {
+                    question: format!("prompt {answer}"),
+                    options,
+                    explanation: explanation.map(|text| format!("note: {text}")),
+                };
+                (question, Answer { answer })
+            })
+    }
+
+    fn quiz_strategy() -> impl Strategy<Value = Quiz> {
+        prop::collection::vec(question_pair_strategy(), 1..=8).prop_map(|pairs| {
+            let (questions, answers) = pairs.into_iter().unzip();
+            Quiz {
+                questions,
+                answers,
+                config: None,
+            }
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn formatted_quiz_round_trips_to_equal_quiz(quiz in quiz_strategy()) {
+            let formatted = quiz.format_source();
+            let reparsed = Quiz::from_source(Path::new("quiz.toml"), &formatted)
+                .expect("formatted quiz must re-parse");
+
+            prop_assert_eq!(reparsed.answers.len(), quiz.answers.len());
+            for (original, parsed) in quiz.questions.iter().zip(&reparsed.questions) {
+                prop_assert_eq!(&parsed.question, &original.question);
+                prop_assert_eq!(&parsed.options, &original.options);
+                prop_assert_eq!(&parsed.explanation, &original.explanation);
+            }
+            for (original, parsed) in quiz.answers.iter().zip(&reparsed.answers) {
+                prop_assert_eq!(&parsed.answer, &original.answer);
+            }
+        }
+
+        #[test]
+        fn formatting_is_idempotent(quiz in quiz_strategy()) {
+            let once = quiz.format_source();
+            let twice = Quiz::from_source(Path::new("quiz.toml"), &once)
+                .expect("formatted quiz must re-parse")
+                .format_source();
+
+            prop_assert_eq!(once, twice);
+        }
     }
 }

@@ -265,4 +265,11 @@ mod tests {
             Err(CliError::UnknownCommand(PathBuf::from("--help")))
         );
     }
+
+    #[test]
+    fn file_like_detects_paths_and_extensions() {
+        assert!(!is_file_like(Path::new("gay")));
+        assert!(is_file_like(Path::new("nested/gay")));
+        assert!(is_file_like(Path::new("missing.md")));
+    }
 }

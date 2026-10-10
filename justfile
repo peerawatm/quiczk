@@ -9,10 +9,18 @@ dev:
 fmt:
 	cargo fmt --all -- --check
 
+# Refresh the embedded example block in README.md from example.toml.
+fmt-readme:
+	python3 -c 'import pathlib, re; readme = pathlib.Path("README.md"); example = pathlib.Path("example.toml").read_text().strip(); block = "```toml\n" + example + "\n```"; updated, count = re.subn(r"```toml\n.*?\n```", lambda _: block, readme.read_text(), count=1, flags=re.S); readme.write_text(updated); print("README.md example refreshed:", count, "block(s)")'
+
 test:
 	cargo check --workspace --all-targets --all-features
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 	cargo test --workspace --all-targets --all-features
+
+# Mutation testing: fails when a mutant survives the test suite.
+mutants:
+	cargo mutants
 
 release: test
 	cargo build --workspace --release

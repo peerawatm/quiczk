@@ -72,3 +72,33 @@ impl Error for AppError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AppError;
+    use std::{error::Error as _, io, path::Path};
+
+    #[test]
+    fn source_exposes_each_wrapped_error() {
+        let path = Path::new("quiz.toml");
+
+        let io_error = AppError::io(path, io::Error::other("io boom"));
+        assert_eq!(
+            io_error.source().expect("io has source").to_string(),
+            "io boom"
+        );
+
+        let toml_error = toml::from_str::<toml::Table>("= invalid").expect_err("must not parse");
+        let toml_error = AppError::toml(path, toml_error);
+        assert!(toml_error.source().is_some());
+
+        let terminal = AppError::terminal(io::Error::other("term boom"));
+        assert_eq!(
+            terminal.source().expect("terminal has source").to_string(),
+            "term boom"
+        );
+
+        let validation = AppError::validation(path, "bad");
+        assert!(validation.source().is_none());
+    }
+}

@@ -1,0 +1,15 @@
+---
+source: src/quiz.rs
+expression: formatted
+---
+[config]
+question_timer_seconds = 30
+shuffle_questions = false
+
+[quiczk]
+q1 = "Question"
+o1 = [
+  "one",
+  "two",
+]
+a1 = "one"

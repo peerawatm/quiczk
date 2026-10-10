@@ -544,10 +544,29 @@ mod tests {
         assert!(header.contains("2 questions"));
     }
 
-    #[test]
-    fn draw_places_number_and_prompt_on_one_line() {
+    fn render_rows(app: &App, width: u16, height: u16) -> Vec<String> {
         use ratatui::{Terminal, backend::TestBackend};
 
+        let mut terminal =
+            Terminal::new(TestBackend::new(width, height)).expect("terminal must build");
+        terminal
+            .draw(|frame| draw(frame, app, None))
+            .expect("draw must succeed");
+        let buffer = terminal.backend().buffer();
+
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn draw_renders_the_expected_frame() {
         let quiz = Quiz {
             questions: vec![Question {
                 question: "H".into(),
@@ -557,23 +576,114 @@ mod tests {
             answers: vec![Answer { answer: "8".into() }],
             config: None,
         };
+        // Pin every source of randomness so the whole frame is reproducible.
         let config = Config {
             hide_options_until_interact: false,
+            random_start_cursor: false,
+            shuffle_options: false,
+            shuffle_questions: false,
             ..Config::default()
         };
         let app = App::new(quiz, config, "Test".into());
-        let mut terminal = Terminal::new(TestBackend::new(40, 10)).expect("terminal must build");
-        terminal
-            .draw(|frame| draw(frame, &app, None))
-            .expect("draw must succeed");
-        let text: String = terminal
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
 
-        assert!(text.contains("1. H"));
+        let frame = render_rows(&app, 40, 10).join("\n");
+        let frame = frame.trim_end();
+
+        insta::assert_snapshot!("single_question_frame", frame);
+    }
+
+    fn deterministic_config() -> Config {
+        Config {
+            shuffle_questions: false,
+            shuffle_options: false,
+            random_start_cursor: false,
+            question_timer_seconds: None,
+            hide_options_until_interact: false,
+        }
+    }
+
+    #[test]
+    fn timer_running_requires_a_timer_and_unanswered_state() {
+        let mut app = App::new(sample_quiz(), deterministic_config(), "Test".into());
+        assert!(!app.timer_running());
+
+        app.config.question_timer_seconds = Some(15);
+        assert!(app.timer_running());
+
+        app.answered = true;
+        assert!(!app.timer_running());
+    }
+
+    #[test]
+    fn remaining_seconds_tracks_the_configured_timer() {
+        let mut app = App::new(sample_quiz(), deterministic_config(), "Test".into());
+        assert_eq!(app.remaining_seconds(), None);
+
+        app.config.question_timer_seconds = Some(15);
+        assert_eq!(app.remaining_seconds(), Some(15));
+
+        app.answered = true;
+        assert_eq!(app.remaining_seconds(), Some(15));
+    }
+
+    #[test]
+    fn poll_timer_expires_once_the_limit_passes() {
+        let mut app = App::new(sample_quiz(), deterministic_config(), "Test".into());
+        app.config.question_timer_seconds = Some(15);
+        assert_eq!(app.poll_timer(), Some(15));
+        assert!(!app.answered);
+
+        app.question_started_at = Instant::now() - Duration::from_secs(16);
+        assert_eq!(app.poll_timer(), Some(15));
+        assert!(app.answered);
+        assert!(app.timed_out);
+        assert_eq!(app.question_results[0], Some(false));
+    }
+
+    #[test]
+    fn restart_resets_all_progress() {
+        let config = Config {
+            hide_options_until_interact: true,
+            ..deterministic_config()
+        };
+        let mut app = App::new(sample_quiz(), config, "Test".into());
+        app.answered = true;
+        app.score = 2;
+        app.timed_out = true;
+        app.question_index = 1;
+        app.question_results = vec![Some(true), Some(false)];
+        app.options_revealed = true;
+
+        app.restart();
+
+        assert_eq!(app.question_index, 0);
+        assert!(!app.answered);
+        assert!(!app.timed_out);
+        assert_eq!(app.score, 0);
+        assert!(app.question_results.iter().all(Option::is_none));
+        assert!(!app.options_revealed);
+    }
+
+    #[test]
+    fn quit_keys_end_the_session() {
+        let mut app = App::new(sample_quiz(), deterministic_config(), "Test".into());
+        assert!(app.handle_key(KeyCode::Char('q'), KeyModifiers::empty()));
+        assert!(app.handle_key(KeyCode::Esc, KeyModifiers::empty()));
+        assert!(app.handle_key(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert!(!app.handle_key(KeyCode::Char('c'), KeyModifiers::empty()));
+    }
+
+    #[test]
+    fn navigation_is_ignored_once_answered() {
+        let mut app = App::new(sample_quiz(), deterministic_config(), "Test".into());
+        app.selected_option = 1;
+
+        app.handle_key(KeyCode::Up, KeyModifiers::empty());
+        assert_eq!(app.selected_option, 0);
+
+        app.answered = true;
+        app.selected_option = 1;
+        app.handle_key(KeyCode::Up, KeyModifiers::empty());
+        assert_eq!(app.selected_option, 1);
     }
 }

@@ -42,3 +42,7 @@ strip = "symbols"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }
+
+[dev-dependencies]
+insta = "1.49.0"
+proptest = "1.11.0"
